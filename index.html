@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>로또 6/45 예측기</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
+    background: linear-gradient(135deg, #1e3a8a 0%, #7c3aed 100%);
+    min-height: 100vh;
+    padding: 30px 16px;
+    color: #222;
+  }
+  .container { max-width: 900px; margin: 0 auto; }
+  h1 { color: white; text-align: center; font-size: 2.2em; margin-bottom: 5px; }
+  .sub { color: #ddd; text-align: center; margin-bottom: 25px; font-size: 0.95em; }
+  .card {
+    background: white;
+    border-radius: 16px;
+    padding: 25px 28px;
+    margin-bottom: 20px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+  }
+  .card h2 { margin-top: 0; color: #1e3a8a; border-bottom: 2px solid #eee; padding-bottom: 10px; font-size: 1.3em; }
+
+  /* 로또 공 */
+  .ball {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 42px; height: 42px; border-radius: 50%;
+    color: white; font-weight: bold; font-size: 1.1em;
+    margin: 0 3px;
+    box-shadow: 0 3px 6px rgba(0,0,0,0.25);
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
+  }
+  .ball-sm { width: 34px; height: 34px; font-size: 0.95em; margin: 0 2px; }
+
+  /* 예측 행 */
+  .pred-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 0; border-bottom: 1px dashed #eee; flex-wrap: wrap; gap: 8px;
+  }
+  .pred-row:last-child { border-bottom: none; }
+  .pred-name { font-weight: bold; color: #555; min-width: 130px; font-size: 0.95em; }
+  .pred-balls { flex: 1; min-width: 280px; }
+  .pred-meta { color: #888; font-size: 0.85em; min-width: 90px; text-align: right; }
+
+  /* 통계 */
+  .stat-row { margin: 12px 0; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+  .stat-row strong { min-width: 140px; color: #1e3a8a; }
+
+  /* 버튼 */
+  .btn {
+    display: inline-block; padding: 12px 24px; margin: 5px;
+    background: #7c3aed; color: white; border: none; border-radius: 8px;
+    cursor: pointer; font-size: 1em; font-weight: bold;
+    text-decoration: none; transition: all 0.2s;
+  }
+  .btn:hover { background: #5b21b6; transform: translateY(-2px); }
+  .btn.green { background: #059669; }
+  .btn.green:hover { background: #047857; }
+  .btn.orange { background: #d97706; }
+  .btn.orange:hover { background: #b45309; }
+  .btn.red { background: #dc2626; }
+  .btn.red:hover { background: #b91c1c; }
+  .btn.sm { padding: 8px 16px; font-size: 0.9em; }
+  .actions { text-align: center; margin: 20px 0; }
+
+  /* 당첨번호 등록 폼 */
+  .add-form { margin-top: 15px; }
+  .form-row { display: flex; align-items: center; gap: 8px; margin: 10px 0; flex-wrap: wrap; }
+  .form-row label { min-width: 70px; font-weight: bold; color: #555; font-size: 0.9em; }
+  .form-row input {
+    width: 52px; padding: 8px 4px; border: 2px solid #ddd; border-radius: 8px;
+    text-align: center; font-size: 1em; font-weight: bold;
+  }
+  .form-row input:focus { border-color: #7c3aed; outline: none; }
+  .form-row input.date-input { width: 140px; }
+  .form-row input.round-input { width: 80px; }
+  #add-msg { margin-top: 10px; padding: 10px; border-radius: 8px; display: none; font-size: 0.9em; }
+  #add-msg.ok { display: block; background: #d1fae5; color: #065f46; }
+  #add-msg.err { display: block; background: #fee2e2; color: #991b1b; }
+
+  /* 최근 당첨번호 테이블 */
+  .recent-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+  .recent-table th {
+    background: #4472C4; color: white; padding: 8px 6px;
+    font-size: 0.85em; text-align: center;
+  }
+  .recent-table td { padding: 8px 6px; text-align: center; border-bottom: 1px solid #eee; font-size: 0.9em; }
+  .recent-table tr:hover { background: #f5f3ff; }
+
+  .footer { text-align: center; color: #ccc; font-size: 0.85em; margin-top: 20px; }
+  .footer a { color: #a5b4fc; }
+
+  .loading { text-align: center; color: white; padding: 60px; font-size: 1.3em; }
+
+  @media (max-width: 600px) {
+    body { padding: 16px 10px; }
+    .card { padding: 18px 16px; }
+    .ball { width: 36px; height: 36px; font-size: 1em; }
+    .ball-sm { width: 30px; height: 30px; font-size: 0.85em; }
+    .pred-name { min-width: 100px; font-size: 0.85em; }
+    .form-row input { width: 44px; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>🎱 로또 6/45 예측기</h1>
+  <div class="sub" id="subtitle">데이터 로딩 중...</div>
+
+  <div id="loading" class="loading">데이터를 불러오는 중...</div>
+  <div id="content" style="display:none;">
+
+    <!-- 예측 -->
+    <div class="card">
+      <h2>🎯 다음 회차 추천 번호</h2>
+      <div id="predictions"></div>
+    </div>
+
+    <div class="actions">
+      <button class="btn" onclick="regenerate()">🔄 다시 생성</button>
+      <button class="btn green" onclick="syncFromGithub()">📡 최신 데이터 동기화</button>
+    </div>
+
+    <!-- 통계 -->
+    <div class="card">
+      <h2>📊 통계 요약</h2>
+      <div id="statistics"></div>
+    </div>
+
+    <!-- 최근 당첨번호 -->
+    <div class="card">
+      <h2>🏆 최근 당첨번호</h2>
+      <div id="recent-draws"></div>
+    </div>
+
+    <!-- 당첨번호 수동 등록 -->
+    <div class="card">
+      <h2>✏️ 당첨번호 수동 등록</h2>
+      <p style="color:#888; font-size:0.85em; margin-bottom:10px;">새 회차 당첨번호를 직접 입력하세요.</p>
+      <div class="add-form">
+        <div class="form-row">
+          <label>회차</label>
+          <input type="number" id="add-round" class="round-input" placeholder="1220">
+          <label>추첨일</label>
+          <input type="date" id="add-date" class="date-input">
+        </div>
+        <div class="form-row">
+          <label>번호 1~6</label>
+          <input type="number" id="n1" min="1" max="45" placeholder="1">
+          <input type="number" id="n2" min="1" max="45" placeholder="2">
+          <input type="number" id="n3" min="1" max="45" placeholder="3">
+          <input type="number" id="n4" min="1" max="45" placeholder="4">
+          <input type="number" id="n5" min="1" max="45" placeholder="5">
+          <input type="number" id="n6" min="1" max="45" placeholder="6">
+        </div>
+        <div class="form-row">
+          <label>보너스</label>
+          <input type="number" id="n-bonus" min="1" max="45" placeholder="7">
+        </div>
+        <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
+          <button class="btn sm orange" onclick="addDraw()">등록</button>
+          <button class="btn sm green" onclick="downloadJSON()">💾 JSON 다운로드</button>
+          <button class="btn sm red" onclick="deleteLast()">🗑️ 마지막 회차 삭제</button>
+        </div>
+        <div id="add-msg"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="footer">
+    ⚠️ 로또는 독립 시행입니다. 재미로만 활용하세요.<br>
+    데이터 소스: <a href="https://github.com/smok95/lotto" target="_blank">smok95/lotto</a>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// 데이터
+// ============================================================
+let lottoData = [];
+const RECENT_WINDOW = 50;
+const GITHUB_ALL_URL = "https://smok95.github.io/lotto/results/all.json";
+
+function ballColor(n) {
+  if (n <= 10) return "#FFC000";
+  if (n <= 20) return "#4472C4";
+  if (n <= 30) return "#FF4444";
+  if (n <= 40) return "#A5A5A5";
+  return "#70AD47";
+}
+
+function ballHTML(n, sm) {
+  const cls = sm ? "ball ball-sm" : "ball";
+  const fg = (n >= 11 && n <= 20) ? "#fff" : "#fff";
+  return `<span class="${cls}" style="background:${ballColor(n)}">${n}</span>`;
+}
+
+function ballsHTML(nums, sm) {
+  return nums.map(n => ballHTML(n, sm)).join("");
+}
+
+// ============================================================
+// 데이터 로드
+// ============================================================
+async function loadData() {
+  // 1) localStorage 확인 (수동 등록 포함된 최신 데이터)
+  const stored = localStorage.getItem("lotto_cache");
+  if (stored) {
+    try {
+      lottoData = JSON.parse(stored);
+      if (lottoData.length > 0) {
+        render();
+        return;
+      }
+    } catch(e) {}
+  }
+  // 2) 레포에 포함된 lotto_cache.json (메인 데이터)
+  try {
+    const resp = await fetch("lotto_cache.json");
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data.length > 0) {
+        lottoData = normalizeData(data);
+        saveLocal();
+        render();
+        return;
+      }
+    }
+  } catch(e) {}
+  // 3) 폴백: GitHub에서 다운로드 (위 두 가지 모두 없을 때만)
+  await syncFromGithub();
+}
+
+function normalizeData(data) {
+  return data.map(item => {
+    // GitHub 형식 (draw_no, bonus_no) 또는 내부 형식 (round, bonus) 모두 지원
+    let dateStr = item.date || "";
+    if (dateStr.includes("T")) dateStr = dateStr.split("T")[0];
+    return {
+      round: item.draw_no || item.round,
+      date: dateStr,
+      numbers: (item.numbers || []).slice().sort((a,b) => a-b),
+      bonus: item.bonus_no !== undefined ? item.bonus_no : item.bonus,
+    };
+  }).sort((a,b) => a.round - b.round);
+}
+
+async function syncFromGithub() {
+  document.getElementById("loading").style.display = "block";
+  document.getElementById("loading").textContent = "GitHub에서 데이터 다운로드 중...";
+  try {
+    const resp = await fetch(GITHUB_ALL_URL);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    // 기존 수동 등록 데이터 보존: GitHub 데이터에 없는 회차만 유지
+    const githubData = normalizeData(data);
+    const githubRounds = new Set(githubData.map(d => d.round));
+    const manualData = lottoData.filter(d => !githubRounds.has(d.round));
+    lottoData = [...githubData, ...manualData].sort((a,b) => a.round - b.round);
+    saveLocal();
+    render();
+  } catch(e) {
+    document.getElementById("loading").textContent = `다운로드 실패: ${e.message}`;
+    if (lottoData.length > 0) {
+      setTimeout(() => render(), 1500);
+    }
+  }
+}
+
+function saveLocal() {
+  localStorage.setItem("lotto_cache", JSON.stringify(lottoData));
+}
+
+// ============================================================
+// 통계 분석
+// ============================================================
+function analyze(data) {
+  const total = data.length;
+  const freqAll = {};
+  const freqRecent = {};
+  const lastSeen = {};
+  const sums = [];
+  const oddCounts = [];
+
+  for (let i = 1; i <= 45; i++) { freqAll[i] = 0; freqRecent[i] = 0; lastSeen[i] = 0; }
+
+  data.forEach(d => {
+    const nums = d.numbers;
+    nums.forEach(n => { freqAll[n]++; lastSeen[n] = d.round; });
+    sums.push(nums.reduce((a,b) => a+b, 0));
+    oddCounts.push(nums.filter(n => n%2===1).length);
+  });
+
+  const recent = data.slice(-RECENT_WINDOW);
+  recent.forEach(d => d.numbers.forEach(n => freqRecent[n]++));
+
+  const latestRound = data[data.length-1].round;
+  const gap = {};
+  for (let n = 1; n <= 45; n++) gap[n] = latestRound - lastSeen[n];
+
+  const avgSum = sums.reduce((a,b) => a+b, 0) / sums.length;
+
+  // 홀수 개수 최빈값
+  const oddCounter = {};
+  oddCounts.forEach(c => oddCounter[c] = (oddCounter[c]||0) + 1);
+  const oddMode = +Object.entries(oddCounter).sort((a,b) => b[1]-a[1])[0][0];
+
+  // 쌍 카운트 (상위 30개만)
+  const pairCount = {};
+  data.forEach(d => {
+    const nums = d.numbers;
+    for (let i = 0; i < 6; i++)
+      for (let j = i+1; j < 6; j++) {
+        const key = `${nums[i]},${nums[j]}`;
+        pairCount[key] = (pairCount[key]||0) + 1;
+      }
+  });
+
+  return {
+    total, latestRound, freqAll, freqRecent, pairCount,
+    gap, avgSum, sumMin: Math.floor(avgSum - 35), sumMax: Math.floor(avgSum + 35),
+    oddMode,
+  };
+}
+
+// ============================================================
+// 예측 전략
+// ============================================================
+function weightedSample(weights) {
+  const nums = Object.keys(weights).map(Number);
+  const w = nums.map(n => Math.max(weights[n] || 0.001, 0.001));
+  const picked = [];
+  const used = new Set();
+  while (picked.length < 6) {
+    const total = w.reduce((a,b) => a+b, 0);
+    let r = Math.random() * total;
+    for (let i = 0; i < nums.length; i++) {
+      r -= w[i];
+      if (r <= 0 && !used.has(nums[i])) {
+        picked.push(nums[i]);
+        used.add(nums[i]);
+        w[i] = 0;
+        break;
+      }
+    }
+  }
+  return picked.sort((a,b) => a-b);
+}
+
+function isBalanced(nums, stats) {
+  const s = nums.reduce((a,b) => a+b, 0);
+  if (s < stats.sumMin || s > stats.sumMax) return false;
+  const odd = nums.filter(n => n%2===1).length;
+  if (odd === 0 || odd === 6) return false;
+  const rng = {};
+  nums.forEach(n => { const k = Math.floor((n-1)/10); rng[k] = (rng[k]||0)+1; });
+  if (Math.max(...Object.values(rng)) >= 5) return false;
+  let consec = 1, maxC = 1;
+  for (let i = 1; i < 6; i++) {
+    if (nums[i] === nums[i-1]+1) { consec++; maxC = Math.max(maxC, consec); }
+    else consec = 1;
+  }
+  return maxC < 4;
+}
+
+const STRATEGIES = [
+  { name: "전체빈도 가중", fn: s => weightedSample(s.freqAll) },
+  { name: "최근트렌드 가중", fn: s => {
+    const w = {}; for (let n=1;n<=45;n++) w[n] = (s.freqRecent[n]||0)+1;
+    return weightedSample(w);
+  }},
+  { name: "콜드넘버 반등", fn: s => {
+    const w = {}; for (let n=1;n<=45;n++) w[n] = (s.gap[n]||0)+1;
+    return weightedSample(w);
+  }},
+  { name: "동반출현 쌍기반", fn: s => {
+    const pairs = Object.entries(s.pairCount).sort((a,b) => b[1]-a[1]).slice(0, 20);
+    const seed = pairs[Math.floor(Math.random()*pairs.length)][0].split(",").map(Number);
+    const picked = [...seed];
+    const partners = {};
+    Object.entries(s.pairCount).forEach(([key, c]) => {
+      const [a,b] = key.split(",").map(Number);
+      if (picked.includes(a) && !picked.includes(b)) partners[b] = (partners[b]||0)+c;
+      if (picked.includes(b) && !picked.includes(a)) partners[a] = (partners[a]||0)+c;
+    });
+    const w = {}; for (let n=1;n<=45;n++) if (!picked.includes(n)) w[n] = partners[n]||1;
+    while (picked.length < 6) {
+      const keys = Object.keys(w).map(Number).filter(n => !picked.includes(n));
+      const ws = keys.map(n => w[n]);
+      const total = ws.reduce((a,b)=>a+b,0);
+      let r = Math.random()*total;
+      for (let i=0;i<keys.length;i++) { r-=ws[i]; if(r<=0){ picked.push(keys[i]); break; } }
+    }
+    return picked.sort((a,b) => a-b);
+  }},
+  { name: "균형형(역사분포)", fn: s => {
+    for (let i = 0; i < 500; i++) {
+      const nums = weightedSample(s.freqAll);
+      if (isBalanced(nums, s)) return nums;
+    }
+    return weightedSample(s.freqAll);
+  }},
+];
+
+// ============================================================
+// 렌더링
+// ============================================================
+function render() {
+  document.getElementById("loading").style.display = "none";
+  document.getElementById("content").style.display = "block";
+
+  if (lottoData.length === 0) {
+    document.getElementById("subtitle").textContent = "데이터 없음";
+    return;
+  }
+
+  const stats = analyze(lottoData);
+  document.getElementById("subtitle").textContent =
+    `분석 대상: 1회 ~ ${stats.latestRound}회 (${stats.total}회차) · ${stats.latestRound+1}회차 추천`;
+
+  // 예측
+  renderPredictions(stats);
+  // 통계
+  renderStats(stats);
+  // 최근 당첨번호
+  renderRecentDraws();
+  // 다음 회차 자동 채움
+  document.getElementById("add-round").value = stats.latestRound + 1;
+}
+
+function renderPredictions(stats) {
+  const html = STRATEGIES.map(st => {
+    const nums = st.fn(stats);
+    const s = nums.reduce((a,b) => a+b, 0);
+    const odd = nums.filter(n => n%2===1).length;
+    return `<div class="pred-row">
+      <div class="pred-name">${st.name}</div>
+      <div class="pred-balls">${ballsHTML(nums)}</div>
+      <div class="pred-meta">합 ${s} · 홀 ${odd}</div>
+    </div>`;
+  }).join("");
+  document.getElementById("predictions").innerHTML = html;
+}
+
+function renderStats(stats) {
+  const topHot = Object.entries(stats.freqAll).sort((a,b) => b[1]-a[1]).slice(0,6).map(e => +e[0]);
+  const topRecent = Object.entries(stats.freqRecent).sort((a,b) => b[1]-a[1]).slice(0,6).map(e => +e[0]);
+  const topCold = Object.entries(stats.gap).sort((a,b) => b[1]-a[1]).slice(0,6);
+
+  document.getElementById("statistics").innerHTML = `
+    <div class="stat-row"><strong>평균 합계</strong> ${stats.avgSum.toFixed(1)} (권장 ${stats.sumMin}~${stats.sumMax})</div>
+    <div class="stat-row"><strong>최빈 홀수 개수</strong> ${stats.oddMode}개</div>
+    <div class="stat-row"><strong>🔥 핫넘버 TOP6</strong> ${ballsHTML(topHot, true)}</div>
+    <div class="stat-row"><strong>📈 최근 ${RECENT_WINDOW}회 핫</strong> ${ballsHTML(topRecent, true)}</div>
+    <div class="stat-row"><strong>🧊 오래된 번호</strong> ${topCold.map(([n,g]) =>
+      `${ballHTML(+n, true)}<small style="color:#888;margin-right:6px">${g}회</small>`
+    ).join("")}</div>
+  `;
+}
+
+function renderRecentDraws() {
+  const recent = lottoData.slice(-10).reverse();
+  const rows = recent.map(d => `<tr>
+    <td><strong>${d.round}</strong></td>
+    <td>${d.date}</td>
+    <td>${ballsHTML(d.numbers, true)}</td>
+    <td>${ballHTML(d.bonus, true)}</td>
+  </tr>`).join("");
+
+  document.getElementById("recent-draws").innerHTML = `
+    <table class="recent-table">
+      <thead><tr><th>회차</th><th>추첨일</th><th>당첨번호</th><th>보너스</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+function regenerate() {
+  if (lottoData.length > 0) {
+    const stats = analyze(lottoData);
+    renderPredictions(stats);
+  }
+}
+
+// ============================================================
+// 당첨번호 수동 등록
+// ============================================================
+function showMsg(text, ok) {
+  const el = document.getElementById("add-msg");
+  el.textContent = text;
+  el.className = ok ? "ok" : "err";
+  setTimeout(() => { el.className = ""; el.style.display = "none"; }, 3000);
+}
+
+function addDraw() {
+  const round = parseInt(document.getElementById("add-round").value);
+  const date = document.getElementById("add-date").value;
+  const nums = [];
+  for (let i = 1; i <= 6; i++) {
+    const v = parseInt(document.getElementById(`n${i}`).value);
+    if (isNaN(v) || v < 1 || v > 45) return showMsg(`번호${i}: 1~45 사이 숫자를 입력하세요`, false);
+    if (nums.includes(v)) return showMsg(`번호 ${v}이(가) 중복됩니다`, false);
+    nums.push(v);
+  }
+  const bonus = parseInt(document.getElementById("n-bonus").value);
+  if (isNaN(bonus) || bonus < 1 || bonus > 45) return showMsg("보너스: 1~45 사이 숫자를 입력하세요", false);
+  if (isNaN(round) || round < 1) return showMsg("회차를 입력하세요", false);
+  if (!date) return showMsg("추첨일을 입력하세요", false);
+
+  // 중복 회차 체크
+  if (lottoData.some(d => d.round === round)) return showMsg(`${round}회차가 이미 존재합니다`, false);
+
+  lottoData.push({ round, date, numbers: nums.sort((a,b) => a-b), bonus });
+  lottoData.sort((a,b) => a.round - b.round);
+  saveLocal();
+  render();
+
+  // 입력 초기화
+  for (let i = 1; i <= 6; i++) document.getElementById(`n${i}`).value = "";
+  document.getElementById("n-bonus").value = "";
+  showMsg(`${round}회차 등록 완료!`, true);
+}
+
+function deleteLast() {
+  if (lottoData.length === 0) return;
+  const last = lottoData[lottoData.length - 1];
+  if (!confirm(`${last.round}회차 (${last.numbers.join(", ")} + ${last.bonus})를 삭제할까요?`)) return;
+  lottoData.pop();
+  saveLocal();
+  render();
+  showMsg(`${last.round}회차 삭제됨`, true);
+}
+
+function downloadJSON() {
+  const blob = new Blob([JSON.stringify(lottoData, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "lotto_cache.json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// ============================================================
+// 초기화
+// ============================================================
+loadData();
+</script>
+</body>
+</html>
