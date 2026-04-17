@@ -111,12 +111,13 @@
     color: #991b1b;
   }
   .stale-banner strong { font-weight: bold; }
-  .stale-banner .inline-btn {
-    display: inline-block; padding: 4px 12px; margin-left: 6px;
-    background: #92400e; color: white; border: none; border-radius: 6px;
-    cursor: pointer; font-size: 0.85em; font-weight: bold;
+  .stale-banner .err-code {
+    margin-top: 8px;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 0.75em;
+    opacity: 0.6;
+    letter-spacing: 0.3px;
   }
-  .stale-banner .inline-btn:hover { background: #78350f; }
 
   .loading { text-align: center; color: white; padding: 60px; font-size: 1.3em; }
 
@@ -236,7 +237,8 @@ function ballsHTML(nums, sm) {
 // ============================================================
 // 원칙: 저장소의 lotto_cache.json이 절대 기준. localStorage는 수동 등록 보존 목적.
 // 매 방문마다 공식 파일을 재확인하므로, GitHub Actions가 갱신한 회차가 자동 전파된다.
-let loadError = null;  // 배너 표시용 상태
+// loadError: null | "FETCH_FAILED" | "NO_DATA"  ← 배너 상태. docs/OPERATIONS.md 참조
+let loadError = null;
 
 async function loadData() {
   // 1) 저장소의 공식 파일 시도 (캐시 무시하고 항상 최신 확인)
@@ -270,7 +272,7 @@ async function loadData() {
   } else if (stored.length > 0) {
     // 공식 파일을 못 받음 — localStorage로 임시 구동하되 배너로 명시
     lottoData = stored;
-    loadError = "저장소의 공식 데이터를 불러오지 못했습니다. 로컬에 저장된 데이터로 임시 표시 중입니다.";
+    loadError = "FETCH_FAILED";
   } else {
     // 둘 다 없음 — 최후 수단으로 GitHub 원본 시도
     await syncFromGithub();
@@ -339,7 +341,7 @@ async function syncFromGithub() {
     if (lottoData.length > 0) {
       setTimeout(() => render(), 1500);
     } else {
-      loadError = `데이터 다운로드 실패: ${e.message}`;
+      loadError = "NO_DATA";
       // 저장소 파일도 없고 GitHub도 실패 → 빈 상태로라도 화면은 띄워 배너 보여주기
       setTimeout(() => {
         document.getElementById("loading").style.display = "none";
@@ -515,18 +517,29 @@ function render() {
   document.getElementById("add-round").value = stats.latestRound + 1;
 }
 
-// 최신 추첨일이 8일 이상 지났거나 로드 에러가 있으면 배너를 띄운다.
-// 로또 6/45는 매주 토요일 추첨 → 정상이면 최대 7일 차이. 8일 이상이면 갱신이 멈춘 것.
+// 배너 표시 규칙 (에러코드 정의는 docs/OPERATIONS.md 참조)
+//   ERR-NO-DATA       : 데이터가 전혀 없음 (최악 상태)
+//   ERR-FETCH-FAILED  : 공식 파일 못 받음, 로컬 저장분으로 임시 구동 중
+//   ERR-STALE-DATA    : 최신 추첨일이 8일+ 경과 (자동 갱신 지연)
 function renderStaleBanner(lastDateStr) {
   const banner = document.getElementById("stale-banner");
 
-  if (loadError) {
+  if (loadError === "NO_DATA") {
     banner.className = "stale-banner err";
     banner.style.display = "block";
-    banner.innerHTML = `❌ <strong>${loadError}</strong><br>
-      네트워크를 확인하거나, 문제가 지속되면
-      <button class="inline-btn" onclick="syncFromGithub()">📡 GitHub 원본 직접 받기</button>
-      를 시도해 보세요.`;
+    banner.innerHTML = `
+      ❌ <strong>데이터를 불러올 수 없어요.</strong><br>
+      잠시 후 다시 시도해 주세요.
+      <div class="err-code">[ERR-NO-DATA]</div>`;
+    return;
+  }
+
+  if (loadError === "FETCH_FAILED") {
+    banner.className = "stale-banner err";
+    banner.style.display = "block";
+    banner.innerHTML = `
+      ❌ <strong>최신 정보를 불러오지 못해 저장된 데이터로 표시 중이에요.</strong>
+      <div class="err-code">[ERR-FETCH-FAILED]</div>`;
     return;
   }
 
@@ -537,11 +550,10 @@ function renderStaleBanner(lastDateStr) {
   if (days > 8) {
     banner.className = "stale-banner";
     banner.style.display = "block";
-    banner.innerHTML = `⚠️ <strong>데이터가 ${days}일째 갱신되지 않았습니다.</strong><br>
-      매주 토요일 추첨이므로 정상이라면 최대 7일 차이여야 합니다.
-      자동 갱신(GitHub Actions)이 멈췄을 수 있습니다.<br>
-      아래 <strong>✏️ 당첨번호 수동 등록</strong> 폼으로 새 회차를 직접 입력하거나,
-      <button class="inline-btn" onclick="syncFromGithub()">📡 지금 동기화</button> 버튼을 눌러보세요.`;
+    banner.innerHTML = `
+      ⚠️ <strong>데이터가 ${days}일째 갱신되지 않았어요.</strong><br>
+      새 당첨번호는 아래 <strong>✏️ 수동 등록</strong> 폼에서 직접 입력해 주세요.
+      <div class="err-code">[ERR-STALE-DATA · ${days}d]</div>`;
   } else {
     banner.style.display = "none";
   }
