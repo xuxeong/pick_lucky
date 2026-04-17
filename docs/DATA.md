@@ -72,6 +72,28 @@
 
 ## 데이터 흐름
 
+### 자동 갱신 (GitHub Actions)
+
+```
+매주 일요일 11:00 KST (02:00 UTC)
+      ↓
+.github/workflows/sync-lotto.yml 트리거
+      ↓
+scripts/sync_lotto.py 실행
+      ↓
+1. smok95 원본 다운로드
+2. normalize() — 필드명 매핑
+3. validate() — 스키마·값 범위·중복·정렬 검증
+4. 기존 lotto_cache.json과 비교
+   - 변경 없음 → 정상 종료
+   - 원본이 더 오래됨 → 실패 (sys.exit 2)
+   - 신규 회차 있음 → 파일 저장
+      ↓
+git add → commit → push (GITHUB_TOKEN)
+      ↓
+실패 시: actions/github-script가 이슈 자동 생성
+```
+
 ### 웹 (index.html)
 
 ```
@@ -79,20 +101,20 @@
       ↓
 loadData()
       ↓
-1. localStorage["lotto_cache"] 있는가?
-   YES → lottoData에 로드 → 끝
-   NO  → 2로
+1. fetch("lotto_cache.json", {cache: "no-cache"})  ← 항상 먼저
+   OK → official 확보
+   Fail → official = null
       ↓
-2. fetch("lotto_cache.json") 성공?
-   YES → normalizeData → localStorage 저장 → 끝
-   NO  → 3으로
+2. localStorage 로드 → stored
       ↓
-3. fetch(GITHUB_ALL_URL)  (폴백)
-      ↓
-   normalizeData → localStorage 저장 → 끝
+3. official 있음?
+   YES → mergeOfficialWithManual(official, stored)  (공식 이김 + 경고)
+        → saveLocal → render
+   NO  → stored 있음? → stored 사용 + loadError 세팅 → render
+        → 없음? → syncFromGithub() (최후 수단)
 ```
 
-사용자가 "📡 최신 데이터 동기화" 버튼을 누르면 `syncFromGithub()`가 실행되어 **GitHub를 강제로 다시 받습니다**. 이때 **사용자가 수동 등록한 회차(= GitHub에 없는 회차)는 보존**됩니다.
+사용자가 "📡 최신 데이터 동기화" 버튼을 누르면 `syncFromGithub()`가 실행되어 smok95 원본을 직접 받습니다. 현 브라우저만 즉시 최신화하는 비상 수단입니다.
 
 ### CLI (lotto_predictor.py)
 
@@ -109,9 +131,13 @@ load_cache() → lotto_cache.json
 analyze() → print_stats() → print_predictions()
 ```
 
-## 수동 등록
+## 수동 등록 (비상용)
 
-웹에서 "✏️ 당첨번호 수동 등록" 폼으로 새 회차를 추가할 수 있습니다.
+자동 갱신이 정상 작동 중이면 사용자가 수동 등록할 일은 거의 없습니다. 아래 상황에서만 사용합니다:
+
+- GitHub Actions가 일시적으로 실패해 새 회차가 반영 안 됨
+- smok95 저장소가 죽어서 복구될 때까지 기다려야 함
+- 테스트 목적
 
 ```javascript
 lottoData.push({ round, date, numbers: [정렬됨], bonus });
@@ -121,13 +147,25 @@ localStorage.setItem("lotto_cache", JSON.stringify(lottoData));
 
 중복 회차는 `addDraw()`에서 거부됩니다.
 
-### 저장소에 영구 반영하는 방법
+### 머지 정책
 
-localStorage는 브라우저에만 있으므로, 다른 기기나 배포본에 반영하려면:
+공식 파일(`lotto_cache.json`)이 나중에 해당 회차를 포함하면, 수동 등록 값은 **자동으로 공식 값으로 덮입니다**. 이때 값이 달랐다면 브라우저 콘솔에 경고가 남습니다:
+
+```
+[pick_lucky] 1220회차 수동 등록값이 공식 데이터와 다릅니다. 공식으로 교체합니다.
+  manual:  { round: 1220, numbers: [1,2,3,...], bonus: 10 }
+  official: { round: 1220, numbers: [1,2,3,...], bonus: 11 }
+```
+
+### 전체 사용자에게 반영하고 싶다면
+
+localStorage는 본인 브라우저에만 있습니다. 모든 방문자에게 반영하려면:
 
 1. "💾 JSON 다운로드" 버튼으로 `lotto_cache.json` 파일 내려받기
 2. 저장소의 `lotto_cache.json`을 받은 파일로 교체
 3. git commit & push
+
+하지만 보통은 **Actions 수동 실행**(Actions 탭 → "Sync lotto data" → "Run workflow")이 더 간단합니다.
 
 ## Excel 백업
 

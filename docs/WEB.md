@@ -16,12 +16,13 @@
 
 화면 위에서 아래로:
 
-1. **제목 / 서브타이틀** — "🎱 로또 6/45 예측기" + 분석 회차 범위
-2. **🎯 다음 회차 추천 번호** (`#predictions`) — 5개 전략의 추천 결과
-3. **버튼 영역** — "🔄 다시 생성" / "📡 최신 데이터 동기화"
-4. **📊 통계 요약** (`#statistics`) — 평균합·홀수·핫·콜드
-5. **🏆 최근 당첨번호** (`#recent-draws`) — 최근 10회 테이블
-6. **✏️ 당첨번호 수동 등록** — 회차/날짜/번호 입력 폼 + 등록·다운로드·삭제
+1. **제목 / 서브타이틀** — "🎱 로또 6/45 예측기" + 분석 회차 범위 + **최종 추첨일**
+2. **⚠️ 데이터 노후/오류 배너** (`#stale-banner`, 조건부) — 최신 추첨일이 8일 이상 지났거나 공식 파일을 못 받았을 때만 표시
+3. **🎯 다음 회차 추천 번호** (`#predictions`) — 5개 전략의 추천 결과
+4. **버튼 영역** — "🔄 다시 생성" / "📡 최신 데이터 동기화"
+5. **📊 통계 요약** (`#statistics`) — 평균합·홀수·핫·콜드
+6. **🏆 최근 당첨번호** (`#recent-draws`) — 최근 10회 테이블
+7. **✏️ 당첨번호 수동 등록** (비상용) — 회차/날짜/번호 입력 폼 + 등록·다운로드·삭제
 
 ## 주요 CSS 클래스
 
@@ -55,10 +56,19 @@
 
 | 함수 | 역할 |
 |---|---|
-| `loadData()` | 진입점. localStorage → `lotto_cache.json` → GitHub 순서로 로드 시도 |
+| `loadData()` | 진입점. **저장소 `lotto_cache.json`을 항상 먼저 확인** (no-cache), localStorage와 머지. 둘 다 실패하면 `syncFromGithub()` |
+| `mergeOfficialWithManual(official, local)` | 공식 데이터 기준으로 localStorage의 수동 등록분을 뒤에 붙임. 같은 회차 값이 다르면 공식이 이기고 콘솔 경고 |
 | `normalizeData(data)` | GitHub 형식(`draw_no`, `bonus_no`)과 내부 형식(`round`, `bonus`)을 모두 내부 형식으로 정규화 |
-| `syncFromGithub()` | GitHub 원본 재다운로드. 수동 등록분은 보존 |
+| `syncFromGithub()` | **비상 수단**. smok95 원본 직접 요청. 수동 등록분은 보존 |
 | `saveLocal()` | 현재 `lottoData`를 `localStorage["lotto_cache"]`에 저장 |
+
+### 머지 정책
+
+`mergeOfficialWithManual()`의 원칙:
+- **공식이 이긴다.** 같은 회차 번호가 있으면 `lotto_cache.json`(또는 smok95) 값으로 덮어씀
+- 값이 다른 경우 **조용히 덮지 않음** — `console.warn`으로 `{manual, official}` 양쪽을 로그
+- localStorage에만 있는 회차(= 공식에 아직 없는 수동 등록분)는 살림
+- 결과는 `round` 오름차순 정렬
 
 ### 통계·예측 계층
 
@@ -75,12 +85,23 @@
 
 | 함수 | 역할 |
 |---|---|
-| `render()` | 로딩 끄고 메인 컨텐츠 표시. 하위 렌더 함수들 호출 |
+| `render()` | 로딩 끄고 메인 컨텐츠 표시. 서브타이틀에 최종 추첨일 포함. 하위 렌더 함수 호출 |
+| `renderStaleBanner(lastDateStr)` | 최신 추첨일이 8일 이상 지났으면 노란 경고 배너, `loadError`가 있으면 빨간 오류 배너 |
 | `renderPredictions(stats)` | `#predictions`에 5개 전략 결과 표시 |
 | `renderStats(stats)` | `#statistics`에 통계 요약 표시 |
 | `renderRecentDraws()` | `#recent-draws`에 최근 10회 테이블 표시 |
 | `ballHTML(n, sm)` / `ballsHTML(nums, sm)` | 공 HTML 조각 생성 |
 | `regenerate()` | "다시 생성" 버튼 핸들러. 예측만 다시 그림 |
+
+### 배너 트리거 조건
+
+| 상태 | 배너 색 | 메시지 |
+|---|---|---|
+| `loadError` 있음 (공식 파일 fetch 실패 + GitHub도 실패) | 빨강 | "공식 데이터를 불러오지 못했습니다" + 수동 동기화 버튼 |
+| 최신 추첨일 + 8일 < 오늘 | 노랑 | "N일째 갱신되지 않았습니다" + 수동 등록/동기화 안내 |
+| 그 외 (정상) | 숨김 | — |
+
+8일 기준: 로또는 매주 토요일 추첨이므로 정상 범위는 최대 7일. 8일이면 한 회차를 놓친 것.
 
 ### 이벤트 (수동 등록 폼)
 
@@ -93,12 +114,13 @@
 
 ## 상태 관리
 
-전역 변수 두 개만 사용합니다.
+전역 변수:
 
 ```javascript
 let lottoData = [];            // 전체 당첨번호 (내부 정규화 형식)
+let loadError = null;          // 공식 파일 로드 실패 시 에러 메시지 (배너 트리거)
 const RECENT_WINDOW = 50;      // 최근 N회 트렌드 분석 범위
-const GITHUB_ALL_URL = "...";  // 데이터 소스 URL
+const GITHUB_ALL_URL = "...";  // 비상용 원본 소스 URL
 ```
 
 영속화는 `localStorage["lotto_cache"]` 한 개 키로만 이루어집니다.
@@ -126,5 +148,6 @@ const GITHUB_ALL_URL = "...";  // 데이터 소스 URL
 ## 주의점
 
 - **파일 직접 열기 vs 로컬 서버**: `file://` 프로토콜로 `index.html`을 열면 `fetch("lotto_cache.json")`이 CORS로 실패할 수 있습니다. `python -m http.server`로 띄우는 것을 권장합니다.
-- **localStorage 우선 순위**: 수동 등록이 있을 때, 저장소의 `lotto_cache.json`을 업데이트해도 사용자의 브라우저는 localStorage 데이터를 먼저 씁니다. "최신 데이터 동기화" 버튼을 눌러야 GitHub를 다시 받습니다.
+- **공식 파일이 항상 이김**: 이제 매 방문마다 `lotto_cache.json`을 `no-cache`로 다시 받습니다. localStorage는 수동 등록분 보존 용도일 뿐, 새 회차 전파를 막지 않습니다.
+- **수동 등록 후 공식 데이터 들어오면**: 같은 회차가 `lotto_cache.json`에 실리는 순간 localStorage의 수동 값은 공식 값으로 덮입니다. 값이 다르면 콘솔에 경고가 남습니다 (개발자 도구 F12에서 확인).
 - **브라우저 호환성**: `fetch`, `localStorage`, 화살표 함수, 템플릿 리터럴 사용. 구형 IE 미지원.

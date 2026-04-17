@@ -14,15 +14,18 @@
 |---|---|---|
 | 정적 웹사이트 | `index.html` | 브라우저에서 바로 실행. GitHub Pages 배포 가능. |
 | CLI 도구 | `lotto_predictor.py` | 터미널에서 실행하는 Python 스크립트. Excel 백업 포함. |
-| 데이터 캐시 | `lotto_cache.json` | 1회 ~ 최신 회차 당첨번호. 웹/CLI 공용. |
+| 데이터 캐시 | `lotto_cache.json` | 1회 ~ 최신 회차 당첨번호. 웹/CLI 공용. **절대 기준**. |
+| 자동 갱신 | `.github/workflows/sync-lotto.yml` | 매주 일요일 `lotto_cache.json`을 자동 갱신 |
+| 갱신 스크립트 | `scripts/sync_lotto.py` | smok95 원본을 받아 검증 후 캐시에 저장 |
 
 ## 기능
 
 - 5가지 전략 기반 번호 추천 (전체빈도, 최근트렌드, 콜드넘버, 동반출현, 균형형)
 - 핫넘버 / 콜드넘버 / 최근 트렌드 통계
-- 최근 당첨번호 조회
-- 당첨번호 수동 등록 / 삭제 / JSON 다운로드 (웹)
-- GitHub에서 최신 회차 자동 동기화
+- 최근 당첨번호 조회 + 최종 추첨일 표시
+- **매주 자동 데이터 갱신** (GitHub Actions, 일요일 11시 KST)
+- 데이터가 8일 이상 갱신되지 않으면 경고 배너 표시
+- 비상용 수동 등록 / 삭제 / JSON 다운로드 (웹)
 
 ## 빠른 시작
 
@@ -63,5 +66,6 @@ python lotto_predictor.py
 | [docs/CLI.md](docs/CLI.md) | `lotto_predictor.py` CLI 모드 · 함수 명세 |
 | [docs/STRATEGIES.md](docs/STRATEGIES.md) | 5가지 예측 전략의 수학·알고리즘 설명 |
 | [docs/DATA.md](docs/DATA.md) | `lotto_cache.json` 스키마와 데이터 수집 흐름 |
+| [docs/OPERATIONS.md](docs/OPERATIONS.md) | 운영·복구 절차 (자동 sync 깨졌을 때 대응) |
 
-처음 읽는다면 → **ARCHITECTURE → WEB / CLI → STRATEGIES → DATA** 순서를 권장합니다.
+처음 읽는다면 → **ARCHITECTURE → WEB / CLI → STRATEGIES → DATA → OPERATIONS** 순서를 권장합니다.

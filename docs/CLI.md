@@ -2,6 +2,8 @@
 
 터미널에서 실행하는 Python 스크립트입니다. `index.html`과 동일한 예측 로직을 제공하며, 추가로 Excel 백업 기능을 갖습니다.
 
+> **참고**: `lotto_cache.json` 자동 갱신은 `scripts/sync_lotto.py` + GitHub Actions가 담당합니다. 이 CLI (`lotto_predictor.py`)는 예측·출력에 집중하며, `--sync` 플래그가 있으면 자체적으로 smok95에서도 받을 수 있습니다 (Actions와 역할이 겹치지만 독립적으로 동작).
+
 ## 실행 방법
 
 ```bash

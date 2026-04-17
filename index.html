@@ -94,6 +94,30 @@
   .footer { text-align: center; color: #ccc; font-size: 0.85em; margin-top: 20px; }
   .footer a { color: #a5b4fc; }
 
+  /* 데이터 노후/오류 배너 */
+  .stale-banner {
+    background: #fef3c7;
+    border: 2px solid #f59e0b;
+    color: #92400e;
+    padding: 14px 18px;
+    border-radius: 12px;
+    margin-bottom: 20px;
+    font-size: 0.95em;
+    line-height: 1.6;
+  }
+  .stale-banner.err {
+    background: #fee2e2;
+    border-color: #dc2626;
+    color: #991b1b;
+  }
+  .stale-banner strong { font-weight: bold; }
+  .stale-banner .inline-btn {
+    display: inline-block; padding: 4px 12px; margin-left: 6px;
+    background: #92400e; color: white; border: none; border-radius: 6px;
+    cursor: pointer; font-size: 0.85em; font-weight: bold;
+  }
+  .stale-banner .inline-btn:hover { background: #78350f; }
+
   .loading { text-align: center; color: white; padding: 60px; font-size: 1.3em; }
 
   @media (max-width: 600px) {
@@ -113,6 +137,9 @@
 
   <div id="loading" class="loading">데이터를 불러오는 중...</div>
   <div id="content" style="display:none;">
+
+    <!-- 데이터 노후/오류 배너 -->
+    <div id="stale-banner" class="stale-banner" style="display:none;"></div>
 
     <!-- 예측 -->
     <div class="card">
@@ -207,33 +234,76 @@ function ballsHTML(nums, sm) {
 // ============================================================
 // 데이터 로드
 // ============================================================
+// 원칙: 저장소의 lotto_cache.json이 절대 기준. localStorage는 수동 등록 보존 목적.
+// 매 방문마다 공식 파일을 재확인하므로, GitHub Actions가 갱신한 회차가 자동 전파된다.
+let loadError = null;  // 배너 표시용 상태
+
 async function loadData() {
-  // 1) localStorage 확인 (수동 등록 포함된 최신 데이터)
-  const stored = localStorage.getItem("lotto_cache");
-  if (stored) {
-    try {
-      lottoData = JSON.parse(stored);
-      if (lottoData.length > 0) {
-        render();
-        return;
-      }
-    } catch(e) {}
-  }
-  // 2) 레포에 포함된 lotto_cache.json (메인 데이터)
+  // 1) 저장소의 공식 파일 시도 (캐시 무시하고 항상 최신 확인)
+  let official = null;
   try {
-    const resp = await fetch("lotto_cache.json");
+    const resp = await fetch("lotto_cache.json", { cache: "no-cache" });
     if (resp.ok) {
-      const data = await resp.json();
-      if (data.length > 0) {
-        lottoData = normalizeData(data);
-        saveLocal();
-        render();
-        return;
+      const raw = await resp.json();
+      if (Array.isArray(raw) && raw.length > 0) {
+        official = normalizeData(raw);
       }
     }
-  } catch(e) {}
-  // 3) 폴백: GitHub에서 다운로드 (위 두 가지 모두 없을 때만)
-  await syncFromGithub();
+  } catch(e) {
+    // 네트워크 오류 — 아래에서 localStorage로 폴백
+  }
+
+  // 2) localStorage 로드 (있으면 수동 등록 보존용으로 사용)
+  let stored = [];
+  const storedRaw = localStorage.getItem("lotto_cache");
+  if (storedRaw) {
+    try {
+      const parsed = JSON.parse(storedRaw);
+      if (Array.isArray(parsed)) stored = normalizeData(parsed);
+    } catch(e) {}
+  }
+
+  if (official) {
+    // 공식 데이터를 기준으로, localStorage에만 있는 회차(=수동 등록분)를 뒤에 붙인다
+    lottoData = mergeOfficialWithManual(official, stored);
+    saveLocal();
+  } else if (stored.length > 0) {
+    // 공식 파일을 못 받음 — localStorage로 임시 구동하되 배너로 명시
+    lottoData = stored;
+    loadError = "저장소의 공식 데이터를 불러오지 못했습니다. 로컬에 저장된 데이터로 임시 표시 중입니다.";
+  } else {
+    // 둘 다 없음 — 최후 수단으로 GitHub 원본 시도
+    await syncFromGithub();
+    return;
+  }
+  render();
+}
+
+// 공식(저장소) 데이터를 기준으로 하고, localStorage의 수동 등록분(공식에 없는 회차)만 유지한다.
+// 같은 회차 값이 다르면 공식이 이기되, 사용자가 알 수 있도록 콘솔에 경고를 남긴다.
+function mergeOfficialWithManual(official, local) {
+  const officialMap = new Map(official.map(d => [d.round, d]));
+  const extras = [];
+  for (const d of local) {
+    const off = officialMap.get(d.round);
+    if (!off) {
+      extras.push(d);   // 공식에 아직 없는 회차만 살림
+      continue;
+    }
+    // 값이 다르면 공식으로 덮되 경고
+    const same =
+      off.bonus === d.bonus &&
+      off.date === d.date &&
+      off.numbers.length === d.numbers.length &&
+      off.numbers.every((n, i) => n === d.numbers[i]);
+    if (!same) {
+      console.warn(
+        `[pick_lucky] ${d.round}회차 수동 등록값이 공식 데이터와 다릅니다. 공식으로 교체합니다.`,
+        { manual: d, official: off }
+      );
+    }
+  }
+  return [...official, ...extras].sort((a, b) => a.round - b.round);
 }
 
 function normalizeData(data) {
@@ -250,6 +320,8 @@ function normalizeData(data) {
   }).sort((a,b) => a.round - b.round);
 }
 
+// "📡 최신 데이터 동기화" 버튼 및 초기 로드의 최후 수단.
+// 저장소 파일이 오래됐거나 fetch가 실패했을 때, 브라우저가 smok95 원본을 직접 받아 즉시 최신화한다.
 async function syncFromGithub() {
   document.getElementById("loading").style.display = "block";
   document.getElementById("loading").textContent = "GitHub에서 데이터 다운로드 중...";
@@ -257,17 +329,24 @@ async function syncFromGithub() {
     const resp = await fetch(GITHUB_ALL_URL);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
-    // 기존 수동 등록 데이터 보존: GitHub 데이터에 없는 회차만 유지
     const githubData = normalizeData(data);
-    const githubRounds = new Set(githubData.map(d => d.round));
-    const manualData = lottoData.filter(d => !githubRounds.has(d.round));
-    lottoData = [...githubData, ...manualData].sort((a,b) => a.round - b.round);
+    lottoData = mergeOfficialWithManual(githubData, lottoData);
     saveLocal();
+    loadError = null;  // 직접 받기에 성공했으면 에러 상태 해제
     render();
   } catch(e) {
     document.getElementById("loading").textContent = `다운로드 실패: ${e.message}`;
     if (lottoData.length > 0) {
       setTimeout(() => render(), 1500);
+    } else {
+      loadError = `데이터 다운로드 실패: ${e.message}`;
+      // 저장소 파일도 없고 GitHub도 실패 → 빈 상태로라도 화면은 띄워 배너 보여주기
+      setTimeout(() => {
+        document.getElementById("loading").style.display = "none";
+        document.getElementById("content").style.display = "block";
+        document.getElementById("subtitle").textContent = "데이터 없음";
+        renderStaleBanner("1970-01-01");
+      }, 1500);
     }
   }
 }
@@ -420,9 +499,12 @@ function render() {
   }
 
   const stats = analyze(lottoData);
+  const lastDraw = lottoData[lottoData.length - 1];
   document.getElementById("subtitle").textContent =
-    `분석 대상: 1회 ~ ${stats.latestRound}회 (${stats.total}회차) · ${stats.latestRound+1}회차 추천`;
+    `분석 대상: 1회 ~ ${stats.latestRound}회 (${stats.total}회차) · ${stats.latestRound+1}회차 추천 · 최종 추첨 ${lastDraw.date}`;
 
+  // 데이터 노후/오류 배너 (신선도 체크)
+  renderStaleBanner(lastDraw.date);
   // 예측
   renderPredictions(stats);
   // 통계
@@ -431,6 +513,38 @@ function render() {
   renderRecentDraws();
   // 다음 회차 자동 채움
   document.getElementById("add-round").value = stats.latestRound + 1;
+}
+
+// 최신 추첨일이 8일 이상 지났거나 로드 에러가 있으면 배너를 띄운다.
+// 로또 6/45는 매주 토요일 추첨 → 정상이면 최대 7일 차이. 8일 이상이면 갱신이 멈춘 것.
+function renderStaleBanner(lastDateStr) {
+  const banner = document.getElementById("stale-banner");
+
+  if (loadError) {
+    banner.className = "stale-banner err";
+    banner.style.display = "block";
+    banner.innerHTML = `❌ <strong>${loadError}</strong><br>
+      네트워크를 확인하거나, 문제가 지속되면
+      <button class="inline-btn" onclick="syncFromGithub()">📡 GitHub 원본 직접 받기</button>
+      를 시도해 보세요.`;
+    return;
+  }
+
+  const lastDate = new Date(lastDateStr + "T00:00:00");
+  const today = new Date();
+  const days = Math.floor((today - lastDate) / (1000 * 60 * 60 * 24));
+
+  if (days > 8) {
+    banner.className = "stale-banner";
+    banner.style.display = "block";
+    banner.innerHTML = `⚠️ <strong>데이터가 ${days}일째 갱신되지 않았습니다.</strong><br>
+      매주 토요일 추첨이므로 정상이라면 최대 7일 차이여야 합니다.
+      자동 갱신(GitHub Actions)이 멈췄을 수 있습니다.<br>
+      아래 <strong>✏️ 당첨번호 수동 등록</strong> 폼으로 새 회차를 직접 입력하거나,
+      <button class="inline-btn" onclick="syncFromGithub()">📡 지금 동기화</button> 버튼을 눌러보세요.`;
+  } else {
+    banner.style.display = "none";
+  }
 }
 
 function renderPredictions(stats) {
